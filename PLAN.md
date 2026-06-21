@@ -8,8 +8,8 @@ See `CONTEXT.md` for domain language and `docs/adr/` for key architectural decis
 |---|---|---|
 | 1 | Project scaffold, PWA shell, CI/CD deploy | ✅ Done |
 | 2 | Database schema + RLS | ✅ Done |
-| 3 | Authentication (Email OTP) | ⬜ Next |
-| 4 | Local data layer (IndexedDB + offline queue + sync) | ⬜ |
+| 3 | Authentication (Email OTP) | ✅ Done |
+| 4 | Local data layer (IndexedDB + offline queue + sync) | ⬜ Next |
 | 5 | Core UI | ⬜ |
 | 6 | PWA polish | ⬜ |
 
@@ -23,9 +23,9 @@ Schema, RLS policies, `updated_at` trigger, and seed data are in `supabase/migra
    - Host: `smtp.resend.com`, Port: `465`, User: `resend`, Password: your Resend API key
 2. In Authentication → Email Templates: verify OTP template looks sensible
 3. In Authentication → Providers → Email: disable "Confirm email" magic link, ensure OTP is enabled
-4. Add `SUPABASE_URL` and `SUPABASE_ANON_KEY` to `.env.local` (and as GitHub Actions secrets for deploy)
-5. Build two routes: `/auth` (email input) → OTP verification form → redirect to `/`
-6. Supabase handles session persistence and token refresh via `supabase-js` automatically
+4. Add `PUBLIC_SUPABASE_URL` and `PUBLIC_SUPABASE_ANON_KEY` to `.env.local`; add as GitHub Actions secrets and inject them as env vars on the `npm run build` step in `deploy.yml`
+5. Build a single `/auth` route: email-input step → OTP-input step (Svelte state, not separate routes); on success, `onAuthStateChange` → `invalidateAll()` → root layout redirects to `/`
+6. Root layout: `ssr = false`, `getSession()` in load function with pathname-based redirect guards, `onAuthStateChange` + `invalidateAll()` in `onMount` (see ADR-0008)
 
 ## Phase 4 — Local Data Layer
 
