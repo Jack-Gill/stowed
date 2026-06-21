@@ -34,3 +34,7 @@ _Avoid_: Global item, item library entry
 
 > "My 2 Weeks Abroad template now has a 'Travel Insurance' item — will my Italy trip update?"
 > — No. **Italy trip** is a **Trip** — a snapshot taken when it was created. Adding a **TemplateItem** to its source **Template** has no effect on it.
+
+## Local development notes
+
+**Supabase migrations must include explicit grants.** Supabase cloud adds table privileges automatically; local migrations do not. Any migration that creates tables needs `GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role` (plus sequences and routines). Without this, REST API calls return 403 even for authenticated users. After changing a migration, run `npx supabase db reset`.

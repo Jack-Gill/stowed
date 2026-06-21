@@ -29,34 +29,60 @@ Schema, RLS policies, `updated_at` trigger, and seed data are in `supabase/migra
 
 ## Phase 4 — Local Data Layer
 
-Architecture: IndexedDB (via `idb`) mirrors Supabase tables. All UI reads from IndexedDB. Writes go to IndexedDB immediately (optimistic) and are either sent to Supabase directly (online) or queued (offline).
+Architecture: IndexedDB (via `idb`) mirrors Supabase tables. All UI reads from global Svelte stores populated from IndexedDB. Writes go to IndexedDB immediately (optimistic) and are either sent to Supabase directly (online) or queued (offline). Only TripItem checked-state mutations are queued; other writes (template edits, trip creation) require a live connection.
+
+### Files
+
+- `src/lib/idb.ts` — IDB client, schema, typed helpers
+- `src/lib/sync.ts` — `pull()`, `flushQueue()`, `sync()`
+- `src/lib/stores.ts` — global stores, `initStores()`, `syncAndRefresh()`, `setTripItemChecked()`
 
 ### IndexedDB schema
 
 ```
-db: 'stowed'
+db: 'stowed', version: 1
 stores:
-  templates      — mirrors templates + template_items (denormalised for read speed)
-  trips          — mirrors trips
-  trip_items     — mirrors trip_items
-  offline_queue  — { id, operation, entity_type, entity_id, payload, timestamp }
+  templates       keyPath: 'id'
+  template_items  keyPath: 'id',          index: 'template_id'
+  trips           keyPath: 'id'
+  trip_items      keyPath: 'id',          index: 'trip_id'
+  offline_queue   keyPath: 'trip_item_id' ← deduplicates by item; put() overwrites
+    fields: trip_item_id, checked (boolean), timestamp
 ```
 
 ### Sync service (`src/lib/sync.ts`)
 
-- `pull()` — fetch all user data from Supabase, overwrite IndexedDB
-- `flushQueue()` — apply queued mutations to Supabase in timestamp order (last-write-wins)
-- `sync()` — `flushQueue()` then `pull()`
+- `pull()` — fetch all user data from Supabase, clear and repopulate each IDB store (full wipe, handles deletes correctly)
+- `flushQueue()` — send each queued checked-state mutation to Supabase; on full success clear the queue; on any failure throw (leaves queue intact, skips `pull()`)
+- `sync()` — `flushQueue()` then `pull()`; if flush throws, leave IDB intact so the user keeps their local state
 
-Triggers: app init (if `navigator.onLine`), `window online` event, manual refresh button.
+Triggers: `onMount` (if session + `navigator.onLine`), `window online` event, `SIGNED_IN` auth event.
+
+If session exists but offline on mount: call `initStores()` only (no pull).
+
+### Global stores (`src/lib/stores.ts`)
+
+```
+syncStatus  — 'loading' | 'ready' | 'offline-empty' | 'error'
+trips       — Trip[]
+tripItems   — TripItem[]
+templates   — Template[]
+templateItems — TemplateItem[]
+```
+
+`initStores()` reads IDB into stores and sets `syncStatus`: `'ready'` if IDB has data, `'offline-empty'` if empty + offline, `'loading'` if empty + online (sync in progress).
+
+`syncAndRefresh()` — sets `syncStatus = 'loading'`, calls `sync()`, then `initStores()`.
+
+Root layout renders a spinner for `'loading'` and an explicit "offline, no cached data" message for `'offline-empty'`.
 
 ### Optimistic UI
 
-TripItem checked state lives in a Svelte store fed from IndexedDB. On check/uncheck:
-1. Update store immediately
-2. Write to IndexedDB
-3. If online: fire Supabase update (fire-and-forget)
-4. If offline: write to `offline_queue` instead
+`setTripItemChecked(tripItemId, checked)`:
+1. Update `tripItems` store immediately
+2. Write to IDB `trip_items`
+3. If online: fire-and-forget Supabase update
+4. If offline: `queueTripItemUpdate(tripItemId, checked)` — overwrites any existing queue entry for this item
 
 ## Phase 5 — Core UI
 
