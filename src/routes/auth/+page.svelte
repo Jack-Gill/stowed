@@ -68,7 +68,6 @@
 						inputmode="numeric"
 						autocomplete="one-time-code"
 						bind:value={token}
-						maxlength="6"
 						required
 						class="rounded border px-3 py-2 tracking-widest"
 					/>
